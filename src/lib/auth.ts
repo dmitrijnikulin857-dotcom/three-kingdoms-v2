@@ -39,22 +39,28 @@ export async function authenticate(
       const user = await prisma.user.findUnique({
         where: { email: normalizedEmail },
       });
-      if (user && (await verifyPassword(password, user.passwordHash))) {
-        return {
-          sub: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
+      if (user) {
+        // A user row exists: password MUST match. Never allow the env
+        // fallback to override an existing account (that would be a backdoor).
+        if (await verifyPassword(password, user.passwordHash)) {
+          return {
+            sub: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        }
+        return null;
       }
-      return null;
+      // No matching user row (e.g. database not seeded yet): fall through to
+      // the env-configured super-admin so the panel is never locked out.
     } catch (error) {
       console.error("[auth] DB auth failed, using fallback:", error);
       // fall through to env fallback
     }
   }
 
-  // Fallback super-admin (no DB configured).
+  // Fallback super-admin (no DB, or DB present but not yet seeded).
   const fallbackEmail = (process.env.ADMIN_EMAIL ?? "owner@three-kingdoms.de")
     .trim()
     .toLowerCase();
